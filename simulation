@@ -1,0 +1,143 @@
+import matplotlib
+# Force l'utilisation d'une fenêtre standard (évite les bugs d'affichage)
+matplotlib.use('TkAgg')
+
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.animation as animation
+from matplotlib.widgets import Slider
+import numpy as np
+
+print("--- DÉMARRAGE DU SIMULATEUR ---")
+
+# --- 1. CONFIGURATION ---
+fig, ax = plt.subplots(figsize=(12, 7))
+plt.subplots_adjust(left=0.15, bottom=0.1) # Marge pour le slider
+ax.set_xlim(0, 12)
+ax.set_ylim(0, 8)
+ax.axis('off')
+fig.patch.set_facecolor('#1e1e1e')
+ax.set_facecolor('#1e1e1e')
+ax.set_title("SIMULATEUR ACTIF : INJECTION EAU M4 GTS", color='white', fontweight='bold', pad=20)
+
+# --- 2. DESSIN ---
+# Réservoir
+ax.add_patch(patches.Rectangle((1, 2), 2, 3, ec='white', fc='none', lw=2))
+ax.add_patch(patches.Rectangle((1, 2), 2, 2.5, fc='#0099FF', alpha=0.6))
+ax.text(2, 1.5, "RÉSERVOIR", color='white', ha='center', fontsize=9)
+
+# Pompe
+ax.add_patch(patches.Circle((5, 3.5), 0.5, ec='white', fc='#333333', lw=2))
+ax.text(5, 3.5, "POMPE", color='white', ha='center', va='center', fontsize=7, fontweight='bold')
+
+# Moteur
+ax.add_patch(patches.Rectangle((9, 2.5), 2.5, 4, ec='red', fc='#220000', lw=2))
+ax.text(10.25, 6.8, "MOTEUR S55", color='red', ha='center', fontweight='bold')
+
+# Tuyaux
+plt.plot([3, 4.5], [3.5, 3.5], color='white', lw=3)
+plt.plot([5.5, 9], [3.5, 3.5], color='white', lw=3)
+
+# --- 3. OBJETS MOBILES ---
+particles, = ax.plot([], [], 'o', color='#00FFFF', ms=5, alpha=0)
+spray, = ax.plot([], [], 'o', color='white', ms=2, alpha=0)
+
+# Boîte de texte
+text_stats = ax.text(6, 6, "EN ATTENTE...", color='#00FF00', fontfamily='monospace', fontsize=10,
+                     bbox=dict(boxstyle='round', facecolor='black', alpha=0.9, edgecolor='white'))
+
+# Jauge T°C
+temp_bar = patches.Rectangle((9.2, 3), 0.5, 0.1, fc='green')
+ax.add_patch(patches.Rectangle((9.2, 3), 0.5, 3, fc='gray', alpha=0.3)) # Fond jauge
+ax.add_patch(temp_bar)
+ax.text(9.45, 2.8, "T°C", color='white', ha='center', fontsize=8)
+
+# --- 4. PHYSIQUE ---
+rpm = 800
+pression_turbo = 1.0
+temp_adm = 40
+water_on = False
+
+# --- 5. SLIDER (PÉDALE) ---
+ax_pedal = plt.axes([0.05, 0.25, 0.03, 0.5], facecolor='#333333')
+slider_pedal = Slider(ax_pedal, 'GAZ', 0, 1, valinit=0, orientation='vertical', color='red')
+slider_pedal.label.set_color('white')
+
+# --- 6. MOTEUR D'ANIMATION ---
+def update(frame):
+    global rpm, pression_turbo, temp_adm, water_on
+
+    # Debug dans la console toutes les 10 frames pour vérifier que ça tourne
+    if frame % 10 == 0:
+        print(f"Animation active - Frame {frame}")
+
+    # Physique
+    pedal_val = slider_pedal.val
+    target_rpm = 800 + (pedal_val * 6200)
+    rpm = rpm * 0.9 + target_rpm * 0.1
+
+    boost = max(0, (rpm - 2500) / 4500)
+    pression_turbo = 1.0 + (boost * 1.5)
+    temp_base = 40 + (pression_turbo - 1.0) * 80
+
+    if pression_turbo > 1.8 or temp_base > 90:
+        water_on = True
+        effect = 25
+    else:
+        water_on = False
+        effect = 0
+
+    real_temp = temp_base - effect
+
+    # Graphismes
+    if water_on:
+        particles.set_alpha(1)
+        # Trajectoire aléatoire dans le tuyau
+        x_p = (np.random.rand(40) * 6) + 3
+        y_p = np.full(40, 3.5)
+        particles.set_data(x_p, y_p)
+
+        # Spray
+        sx = 9.5 + np.random.rand(20) * 1.5
+        sy = 3.5 + (np.random.rand(20) - 0.5) * 1.5
+        spray.set_data(sx, sy)
+        spray.set_alpha(0.8)
+
+        status = "INJECTION ACTIVE"
+        col = '#00FFFF'
+        temp_bar.set_facecolor('#00FFFF')
+    else:
+        particles.set_alpha(0)
+        spray.set_alpha(0)
+        status = "NORMAL"
+        col = '#00FF00'
+        temp_bar.set_facecolor('green')
+        if real_temp > 100:
+            status = "SURCHAUFFE"
+            col = 'red'
+            temp_bar.set_facecolor('red')
+
+    # Mise à jour Jauge
+    h = (real_temp / 150) * 3
+    temp_bar.set_height(h)
+
+    # Mise à jour Texte
+    txt = (f"RÉGIME : {int(rpm)} tr/min\n"
+           f"TURBO  : {pression_turbo:.2f} Bar\n"
+           f"TEMP   : {int(real_temp)} °C\n"
+           f"ÉTAT   : {status}")
+    text_stats.set_text(txt)
+    text_stats.set_color(col)
+    text_stats.set_bbox(dict(facecolor='black', edgecolor=col))
+
+    return particles, spray, temp_bar, text_stats
+
+# --- LANCEMENT FORCÉ ---
+# On force un premier calcul pour effacer "INITIALISATION..." tout de suite
+update(0)
+
+# On stocke l'animation dans une variable GLOBALE pour qu'elle ne soit pas supprimée
+ani = animation.FuncAnimation(fig, update, frames=200, interval=50, blit=False, cache_frame_data=False)
+
+print("Fenêtre prête. Affichage...")
+plt.show()
